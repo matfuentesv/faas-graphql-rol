@@ -9,7 +9,4 @@ public interface RolService {
 
     List<Rol>findRolAll();
     Optional<Rol> finRolById(Long id);
-    Rol saveRol(Rol rol);
-    Rol updateRol(Rol rol);
-    void deleteRol(Long id);
 }
