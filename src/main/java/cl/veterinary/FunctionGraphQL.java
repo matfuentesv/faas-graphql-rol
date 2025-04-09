@@ -8,11 +8,9 @@ import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.HttpTrigger;
 import graphql.ExecutionInput;
 import graphql.GraphQL;
-import graphql.schema.DataFetcher;
-import graphql.schema.GraphQLList;
-import graphql.schema.GraphQLObjectType;
-import graphql.schema.GraphQLSchema;
 import graphql.Scalars;
+import graphql.schema.*;
+
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ApplicationContext;
 
@@ -24,14 +22,12 @@ public class FunctionGraphQL {
     private static final GraphQL graphQL;
 
     static {
-
-         final ApplicationContext context =
+        final ApplicationContext context =
                 new SpringApplicationBuilder(SpringAzureApp.class).run();
 
-         final RolService rolService =
+        final RolService rolService =
                 context.getBean(RolService.class);
 
-        // Tipo GraphQL para Rol
         GraphQLObjectType rolType = GraphQLObjectType.newObject()
                 .name("Rol")
                 .field(f -> f.name("id").type(Scalars.GraphQLID))
@@ -39,16 +35,43 @@ public class FunctionGraphQL {
                 .field(f -> f.name("descripcion").type(Scalars.GraphQLString))
                 .build();
 
-        // DataFetcher para obtener todos los roles
+        GraphQLInputObjectType rolInput = GraphQLInputObjectType.newInputObject()
+                .name("RolInput")
+                .field(f -> f.name("id").type(Scalars.GraphQLID)) // para update
+                .field(f -> f.name("nombre").type(Scalars.GraphQLString))
+                .field(f -> f.name("descripcion").type(Scalars.GraphQLString))
+                .build();
+
         DataFetcher<List<Rol>> rolesDataFetcher = env -> rolService.findRolAll();
 
-        // Nuevo DataFetcher para obtener un Rol por ID
         DataFetcher<Rol> rolByIdDataFetcher = env -> {
             Long id = Long.parseLong(env.getArgument("id"));
             return rolService.finRolById(id).orElse(null);
         };
 
-        // Definición del schema con query "getAllRoles"
+        DataFetcher<Rol> saveRolFetcher = env -> {
+            Map<String, Object> input = env.getArgument("input");
+            Rol rol = new Rol();
+            rol.setNombre((String) input.get("nombre"));
+            rol.setDescripcion((String) input.get("descripcion"));
+            return rolService.saveRol(rol);
+        };
+
+        DataFetcher<Rol> updateRolFetcher = env -> {
+            Map<String, Object> input = env.getArgument("input");
+            Rol rol = new Rol();
+            rol.setId(Long.parseLong((String) input.get("id")));
+            rol.setNombre((String) input.get("nombre"));
+            rol.setDescripcion((String) input.get("descripcion"));
+            return rolService.updateRol(rol);
+        };
+
+        DataFetcher<String> deleteRolFetcher = env -> {
+            Long id = Long.parseLong(env.getArgument("id"));
+            rolService.deleteRol(id);
+            return "Rol eliminado con ID: " + id;
+        };
+
         GraphQLObjectType queryType = GraphQLObjectType.newObject()
                 .name("Query")
                 .field(f -> f
@@ -58,15 +81,32 @@ public class FunctionGraphQL {
                 .field(f -> f
                         .name("getRolById")
                         .type(rolType)
-                        .argument(arg -> arg
-                                .name("id")
-                                .type(Scalars.GraphQLID))
+                        .argument(arg -> arg.name("id").type(Scalars.GraphQLID))
                         .dataFetcher(rolByIdDataFetcher))
                 .build();
 
-        // Crear el schema
+        GraphQLObjectType mutationType = GraphQLObjectType.newObject()
+                .name("Mutation")
+                .field(f -> f
+                        .name("saveRol")
+                        .type(rolType)
+                        .argument(arg -> arg.name("input").type(rolInput))
+                        .dataFetcher(saveRolFetcher))
+                .field(f -> f
+                        .name("updateRol")
+                        .type(rolType)
+                        .argument(arg -> arg.name("input").type(rolInput))
+                        .dataFetcher(updateRolFetcher))
+                .field(f -> f
+                        .name("deleteRol")
+                        .type(Scalars.GraphQLString)
+                        .argument(arg -> arg.name("id").type(Scalars.GraphQLID))
+                        .dataFetcher(deleteRolFetcher))
+                .build();
+
         GraphQLSchema schema = GraphQLSchema.newSchema()
                 .query(queryType)
+                .mutation(mutationType)
                 .build();
 
         graphQL = GraphQL.newGraphQL(schema).build();
